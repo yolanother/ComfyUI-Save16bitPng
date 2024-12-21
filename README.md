@@ -1,4 +1,4 @@
-# Comfy UI Node Template
+# Save Uncompressed 16 Bit PNG
 This is a custom node for the Comfy UI stable diffusion client.
 
 ## Description
