@@ -1,0 +1,15 @@
+[project]
+name = "comfyui-save16bitpng"
+description = "The SaveImageARGB16PNG node provides functionality for saving images as uncompressed PNG files with ARGB16 precision. This node is particularly useful for workflows that require high-quality image saving with metadata such as prompts and additional PNG info."
+version = "1.0.0"
+license = {file = "LICENSE"}
+dependencies = ["OpenEXR", "Imath"]
+
+[project.urls]
+Repository = "https://github.com/yolanother/ComfyUI-Save16bitPng"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "ComfyUI-Save16bitPng"
+Icon = ""
