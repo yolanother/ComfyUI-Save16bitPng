@@ -1,115 +1,122 @@
 import os
 import sys
-import json
 import folder_paths
+import numpy as np
+import re
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy"))
 
 
 class SaveImageARGB16PNG:
-    """
-    A custom node for saving images in ARGB16 PNG format.
-
-    This node saves images with high-quality 16-bit precision and supports metadata embedding.
-    """
     def __init__(self):
-        """
-        Initializes the SaveImageARGB16PNG class.
-
-        Attempts to import the Pillow library for image handling. Sets up default parameters
-        like output directory and compression level.
-
-        Raises:
-            ImportError: If the Pillow library is not installed.
-        """
         try:
-            from PIL import Image
-            self.Image = Image
+            import OpenEXR
+            import Imath
+            self.OpenEXR = OpenEXR
+            self.Imath = Imath
+            self.use_openexr = True
         except ImportError:
-            raise ImportError("Pillow module not found. Please install it to save PNG images.")
+            print("No OpenEXR module found, trying OpenCV...")
+            self.use_openexr = False
+            try:
+                os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
+                import cv2
+                self.cv2 = cv2
+            except ImportError:
+                raise ImportError("No OpenEXR or OpenCV module found, can't save EXR")
 
         self.output_dir = folder_paths.get_output_directory()
         self.type = "output"
         self.prefix_append = ""
-        self.compress_level = 0
 
     @classmethod
-    def INPUT_TYPES(cls):
-        """
-        Defines the input types required by the node.
-
-        Returns:
-            dict: A dictionary containing required and hidden inputs for the node.
-        """
+    def INPUT_TYPES(s):
         return {
             "required": {
-                "images": ("IMAGE",),
-                "filename_prefix": ("STRING", {"default": "ComfyUI"})
+                "images": ("IMAGE", {"tooltip": "The images to save."}),
+                "filename_prefix": ("STRING", {"default": "ComfyUI_EXR", "tooltip": "The prefix for the file to save. This may include formatting information such as %date:yyyy-MM-dd% or %Empty Latent Image.width% to include values from nodes."})
             },
             "hidden": {
                 "prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"
             },
         }
 
-    RETURN_TYPES = ()  # Specifies the return type of the node.
-    FUNCTION = "savepng"  # Defines the main function to execute.
-    OUTPUT_NODE = True  # Indicates this is an output node.
-    CATEGORY = "image"  # Specifies the category of the node.
+    RETURN_TYPES = ()
+    FUNCTION = "save_images_exr"
 
-    def savepng(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
-        """
-        Saves images in ARGB16 PNG format with optional metadata.
+    OUTPUT_NODE = True
 
-        Args:
-            images (list): List of image tensors to be saved.
-            filename_prefix (str): Prefix for the output filenames.
-            prompt (str, optional): Metadata prompt to embed in the PNG files.
-            extra_pnginfo (dict, optional): Additional metadata as key-value pairs to embed in the PNG files.
+    CATEGORY = "image"
+    DESCRIPTION = "Saves the input images as EXR files in your ComfyUI output directory."
 
-        Returns:
-            dict: A dictionary with UI-compatible information about the saved images.
-        """
-        import numpy as np
-        import os
-        import re
-        from PIL.PngImagePlugin import PngInfo
-
+    def save_images_exr(self, images, filename_prefix="ComfyUI_EXR", prompt=None, extra_pnginfo=None):
+        from io import BytesIO
+        from PIL import Image
         filename_prefix += self.prefix_append
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
             filename_prefix, self.output_dir, images[0].shape[1], images[0].shape[0]
         )
-        results = []
+        results = list()
 
-        for batch_number, image in enumerate(images):
-            # Convert the image tensor to a numpy array and scale to 16-bit range.
+        def file_counter():
+            max_counter = 0
+            for existing_file in os.listdir(full_output_folder):
+                match = re.fullmatch(f"{filename}_(\d+)_?\.[a-zA-Z0-9]+", existing_file)
+                if match:
+                    file_counter = int(match.group(1))
+                    if file_counter > max_counter:
+                        max_counter = file_counter
+            return max_counter
+
+        for (batch_number, image) in enumerate(images):
             image_np = image.cpu().numpy()
-            image_np = (image_np * 65535).astype(np.uint16)
+            image_np = image_np.astype(np.float32)
 
-            # Determine the image mode based on the number of channels.
-            if image_np.shape[-1] == 4:
-                mode = "RGBA"
+            if self.use_openexr:
+                PIXEL_TYPE = self.Imath.PixelType(self.Imath.PixelType.FLOAT)
+                height, width, channels = image_np.shape
+
+                header = self.OpenEXR.Header(width, height)
+                half_chan = self.Imath.Channel(PIXEL_TYPE)
+                header['channels'] = dict([(c, half_chan) for c in "RGB"])
+
+                R = image_np[:, :, 0].tobytes()
+                G = image_np[:, :, 1].tobytes()
+                B = image_np[:, :, 2].tobytes()
+
+                counter = file_counter() + 1
+                filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
+                file = f"{filename_with_batch_num}_{counter:05}.png"
+
+                # Write EXR to memory
+                exr_buffer = BytesIO()
+                exr_file = self.OpenEXR.OutputFile(exr_buffer, header)
+                exr_file.writePixels({'R': R, 'G': G, 'B': B})
+                exr_file.close()
+
+                # Convert EXR buffer to RGBA16 PNG
+                exr_buffer.seek(0)
+                img = Image.open(exr_buffer)
+                img = img.convert("RGBA")
+                img.save(os.path.join(full_output_folder, file), format="PNG", bits=16)
+
+                # Delete EXR buffer
+                exr_buffer.close()
             else:
-                mode = "RGB"
+                counter = file_counter() + 1
+                filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
+                file = f"{filename_with_batch_num}_{counter:05}.png"
 
-            # Create a PIL Image object.
-            image_pil = self.Image.fromarray(image_np, mode=mode)
+                # Convert image to RGBA16 PNG and save using OpenCV
+                image_rgba16 = (image_np * 65535).astype('uint16')
+                rgba_image = self.cv2.merge((
+                    image_rgba16[:, :, 0],
+                    image_rgba16[:, :, 1],
+                    image_rgba16[:, :, 2],
+                    (image_rgba16[:, :, 0] * 0).astype('uint16') + 65535
+                ))  # Add alpha channel with max value
+                self.cv2.imwrite(os.path.join(full_output_folder, file), rgba_image)
 
-            # Add metadata to the PNG if provided.
-            metadata = PngInfo()
-            if prompt is not None:
-                metadata.add_text("prompt", json.dumps(prompt))
-            if extra_pnginfo is not None:
-                for x in extra_pnginfo:
-                    metadata.add_text(x, json.dumps(extra_pnginfo[x]))
-
-            # Generate the output filename.
-            filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
-            file = f"{filename_with_batch_num}_{counter:05}_.png"
-
-            # Save the image with metadata and specified compression level.
-            image_pil.save(os.path.join(full_output_folder, file), format="PNG", compress_level=self.compress_level, pnginfo=metadata)
-
-            # Append file information to the results.
             results.append({
                 "filename": file,
                 "subfolder": subfolder,
@@ -119,10 +126,11 @@ class SaveImageARGB16PNG:
 
         return { "ui": { "images": results } }
 
+
 NODE_CLASS_MAPPINGS = {
     "SaveImageARGB16PNG": SaveImageARGB16PNG
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SaveImageARGB16PNG": "SaveImageARGB16PNG"
+    "SaveImageARGB16PNG": "Save Image RGBA 16 PNG",
 }
