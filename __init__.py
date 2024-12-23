@@ -16,6 +16,7 @@ class SaveImageARGB16PNG:
             self.OpenEXR = OpenEXR
             self.Imath = Imath
             self.use_openexr = True
+            print("AARON: Using OpenEXR!")
         except ImportError:
             print("No OpenEXR module found, trying OpenCV...")
             self.use_openexr = False
@@ -88,17 +89,19 @@ class SaveImageARGB16PNG:
                 counter = file_counter() + 1
                 filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
                 file = f"{filename_with_batch_num}_{counter:05}.png"
+                temp_exr_file = os.path.join(full_output_folder, f"{filename_with_batch_num}_{counter:05}.exr")
 
-                with tempfile.NamedTemporaryFile(suffix=".exr", delete=True) as temp_exr_file:
-                    # Create the EXR file using the temporary file
-                    exr_file = self.OpenEXR.OutputFile(temp_exr_file.name, header)
-                    exr_file.writePixels({'R': R, 'G': G, 'B': B})
-                    exr_file.close()
+                exr_file = self.OpenEXR.OutputFile(temp_exr_file, header)
+                exr_file.writePixels({'R': R, 'G': G, 'B': B})
+                exr_file.close()
 
-                    # Open the temporary EXR file for conversion
-                    img = Image.open(temp_exr_file.name)
-                    img = img.convert("RGBA")
-                    img.save(os.path.join(full_output_folder, file), format="PNG", bits=16)
+                # Open the temporary EXR file for conversion
+                img = Image.open(temp_exr_file)
+                img = img.convert("RGBA")
+                img.save(os.path.join(full_output_folder, file), format="PNG", bits=16)
+
+                # Delete the temporary EXR file
+                os.remove(temp_exr_file)
             else:
                 counter = file_counter() + 1
                 filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
