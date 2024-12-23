@@ -3,6 +3,7 @@ import sys
 import folder_paths
 import numpy as np
 import re
+import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy"))
 
@@ -88,20 +89,16 @@ class SaveImageARGB16PNG:
                 filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
                 file = f"{filename_with_batch_num}_{counter:05}.png"
 
-                # Write EXR to memory
-                exr_buffer = BytesIO()
-                exr_file = self.OpenEXR.OutputFile(exr_buffer, header)
-                exr_file.writePixels({'R': R, 'G': G, 'B': B})
-                exr_file.close()
+                with tempfile.NamedTemporaryFile(suffix=".exr", delete=True) as temp_exr_file:
+                    # Create the EXR file using the temporary file
+                    exr_file = self.OpenEXR.OutputFile(temp_exr_file.name, header)
+                    exr_file.writePixels({'R': R, 'G': G, 'B': B})
+                    exr_file.close()
 
-                # Convert EXR buffer to RGBA16 PNG
-                exr_buffer.seek(0)
-                img = Image.open(exr_buffer)
-                img = img.convert("RGBA")
-                img.save(os.path.join(full_output_folder, file), format="PNG", bits=16)
-
-                # Delete EXR buffer
-                exr_buffer.close()
+                    # Open the temporary EXR file for conversion
+                    img = Image.open(temp_exr_file.name)
+                    img = img.convert("RGBA")
+                    img.save(os.path.join(full_output_folder, file), format="PNG", bits=16)
             else:
                 counter = file_counter() + 1
                 filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
