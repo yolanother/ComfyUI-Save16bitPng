@@ -74,48 +74,19 @@ class SaveImageARGB16PNG:
             image_np = image.cpu().numpy()
             image_np = image_np.astype(np.float32)
 
-            if self.use_openexr:
-                PIXEL_TYPE = self.Imath.PixelType(self.Imath.PixelType.FLOAT)
-                height, width, channels = image_np.shape
+            counter = file_counter() + 1
+            filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
+            file = f"{filename_with_batch_num}_{counter:05}.png"
 
-                header = self.OpenEXR.Header(width, height)
-                half_chan = self.Imath.Channel(PIXEL_TYPE)
-                header['channels'] = dict([(c, half_chan) for c in "RGB"])
-
-                R = image_np[:, :, 0].tobytes()
-                G = image_np[:, :, 1].tobytes()
-                B = image_np[:, :, 2].tobytes()
-
-                counter = file_counter() + 1
-                filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
-                file = f"{filename_with_batch_num}_{counter:05}.png"
-                temp_exr_file = os.path.join(full_output_folder, f"{filename_with_batch_num}_{counter:05}.exr")
-
-                exr_file = self.OpenEXR.OutputFile(temp_exr_file, header)
-                exr_file.writePixels({'R': R, 'G': G, 'B': B})
-                exr_file.close()
-
-                # Open the temporary EXR file for conversion
-                img = Image.open(temp_exr_file)
-                img = img.convert("RGBA")
-                img.save(os.path.join(full_output_folder, file), format="PNG", bits=16)
-
-                # Delete the temporary EXR file
-                os.remove(temp_exr_file)
-            else:
-                counter = file_counter() + 1
-                filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
-                file = f"{filename_with_batch_num}_{counter:05}.png"
-
-                # Convert image to RGBA16 PNG and save using OpenCV
-                image_rgba16 = (image_np * 65535).astype('uint16')
-                rgba_image = self.cv2.merge((
-                    image_rgba16[:, :, 0],
-                    image_rgba16[:, :, 1],
-                    image_rgba16[:, :, 2],
-                    (image_rgba16[:, :, 0] * 0).astype('uint16') + 65535
-                ))  # Add alpha channel with max value
-                self.cv2.imwrite(os.path.join(full_output_folder, file), rgba_image)
+            # Convert image to RGBA16 PNG and save using OpenCV
+            image_rgba16 = (image_np * 65535).astype('uint16')
+            rgba_image = self.cv2.merge((
+                image_rgba16[:, :, 0],
+                image_rgba16[:, :, 1],
+                image_rgba16[:, :, 2],
+                (image_rgba16[:, :, 0] * 0).astype('uint16') + 65535
+            ))  # Add alpha channel with max value
+            self.cv2.imwrite(os.path.join(full_output_folder, file), rgba_image)
 
             results.append({
                 "filename": file,
