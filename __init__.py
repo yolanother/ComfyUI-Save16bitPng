@@ -3,29 +3,14 @@ import sys
 import folder_paths
 import numpy as np
 import re
-import tempfile
+import cv2
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy"))
 
 
 class SaveImageARGB16PNG:
     def __init__(self):
-        try:
-            import OpenEXR
-            import Imath
-            self.OpenEXR = OpenEXR
-            self.Imath = Imath
-            self.use_openexr = True
-            print("AARON: Using OpenEXR!")
-        except ImportError:
-            print("No OpenEXR module found, trying OpenCV...")
-            self.use_openexr = False
-            try:
-                os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
-                import cv2
-                self.cv2 = cv2
-            except ImportError:
-                raise ImportError("No OpenEXR or OpenCV module found, can't save EXR")
+        self.cv2 = cv2
 
         self.output_dir = folder_paths.get_output_directory()
         self.type = "output"
